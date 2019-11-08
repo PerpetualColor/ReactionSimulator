@@ -4,6 +4,11 @@
 void ofApp::setup(){
 	nParticles = 1000;
 	radius = 0.01;
+	energyMax = 1;
+	updateCount = 0;
+
+	gui.setup();
+	gui.add(velocityMultiplier.setup("Velocity Multiplier", 1.0021, 1, 1.01));
 
 	compute.setupShaderFromFile(GL_COMPUTE_SHADER, "position_compute.glsl");
 	compute.linkProgram();
@@ -28,7 +33,18 @@ void ofApp::setup(){
 	particles[1].pos.y = 0.499;
 	particles[1].vel.set(-0.05, 0);
 	particles[1].mass.set(1.0, 0, 0, 0);
-	particles[1].color = ofColor(255, 0, 0, 255);*/
+	particles[1].color = ofColor(255, 0, 0, 255);
+	*/
+
+	/*
+	particles[0].pos.set(0, 0.5);
+	particles[0].vel.set(1, 0);
+	particles[0].mass_angle_angularVel_reactiveAngle.set(1.0, 90, 180, 40);
+
+	particles[1].pos.set(1, 0.5);
+	particles[1].vel.set(-1, 0);
+	particles[1].mass_angle_angularVel_reactiveAngle.set(1.0, -90, 180.0, 40.0);
+	*/
 	
 	
 	particleBuffer1.allocate(particles, GL_DYNAMIC_DRAW);
@@ -47,6 +63,7 @@ void ofApp::update(){
 	compute.setUniform1i("nParticles", nParticles);
 	compute.setUniform1f("lastFrameTime", 1.0/60);
 	compute.setUniform1f("radius", radius);
+	compute.setUniform1f("velocityMult", velocityMultiplier);
 
 	compute.dispatchCompute((particles.size() + 1024 - 1) / 1024, 1, 1);
 	compute.end();
@@ -58,6 +75,34 @@ void ofApp::update(){
 	while ((err = glGetError()) != GL_NO_ERROR) {
 		cout << "OpenGL Error: " << err << endl;
 	}
+
+	if (updateCount % 4 == 0) {
+		float e = 0;
+		for (auto &p : particles) {
+			e += 0.5 * p.mass_angle_angularVel_reactiveAngle.x * p.vel.lengthSquared();
+		}
+		if (e > energyMax) {
+			float oldEMax = energyMax;
+			energyMax = e;
+			for (auto &v : energyLevels) {
+				v = v * oldEMax / energyMax;
+			}
+		}
+
+		avgEnergy *= (updateCount / 4);
+		avgEnergy += e;
+		avgEnergy /= (updateCount / 4) + 1;
+
+		if (energyLevels.size() < 60) {
+			energyLevels.push_back(e);
+		}
+		else {
+			rotate(energyLevels.begin(), energyLevels.begin() + 1, energyLevels.end());
+			energyLevels[energyLevels.size() - 1] = e;
+		}
+	}
+	updateCount++;
+
 }
 
 //--------------------------------------------------------------
@@ -66,21 +111,36 @@ void ofApp::draw(){
 	ofFill();
 	ofPushMatrix();
 	ofRotateDeg(180);
-	float scaleFac = min(ofGetWidth(), ofGetHeight());
+	float scaleFac = min(ofGetWidth()-300, ofGetHeight());
 	for (auto &p : particles) {
 		ofPath arc;
 		arc.setStrokeWidth(5);
 		arc.setStrokeColor(ofColor(0));
 		arc.setFillColor(ofColor(0));
-		arc.arc(p.pos.x * scaleFac - scaleFac, p.pos.y * scaleFac - scaleFac, radius * scaleFac + 2, radius * scaleFac + 2, p.mass_angle_angularVel_reactiveAngle.y + 90 - (0.5 * 30), p.mass_angle_angularVel_reactiveAngle.y + 90 + (0.5 * 30));
+		arc.arc(-300+p.pos.x * scaleFac - scaleFac, p.pos.y * scaleFac - scaleFac, radius * scaleFac + 2, radius * scaleFac + 2, p.mass_angle_angularVel_reactiveAngle.y + 90 - (0.5 * 30), p.mass_angle_angularVel_reactiveAngle.y + 90 + (0.5 * 30));
 		arc.close();
 		arc.draw();
 		ofSetColor(p.color);
-		ofDrawCircle(p.pos.x * scaleFac - scaleFac, p.pos.y * scaleFac - scaleFac, radius * scaleFac);
+		ofDrawCircle(-300+p.pos.x * scaleFac - scaleFac, p.pos.y * scaleFac - scaleFac, radius * scaleFac);
+		
 	}
 	ofPopMatrix();
 	ofSetColor(0);
 	ofDrawBitmapString("Framerate: " + ofToString(fps, 0), 10, 10);
+
+	// create graph of energy
+	ofPolyline energyLine;
+	int energyGraphHeight = 100;
+
+	for (int i = 0; i < energyLevels.size(); i++) {
+		energyLine.addVertex(i * 5, 100 + energyGraphHeight - (energyLevels[i] * energyGraphHeight / energyMax));
+	}
+	energyLine.draw();
+	ofDrawBitmapString("Current Avg. Energy: " + ofToString(energyLevels[energyLevels.size() - 1], 2), 10, 80);
+	ofDrawBitmapString("Overall Avg. Energy: " + ofToString(avgEnergy, 2), 10, 60);
+
+	gui.setPosition(10, 250);
+	gui.draw();
 }
 
 //--------------------------------------------------------------

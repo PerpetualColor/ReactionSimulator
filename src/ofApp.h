@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ofMain.h"
+#include "ofxGui.h"
 
 class ofApp : public ofBaseApp{
 
@@ -32,10 +33,18 @@ class ofApp : public ofBaseApp{
 		float fps;
 		int nParticles;
 		float radius;
+		float avgEnergy;
 		
+		ofxFloatSlider velocityMultiplier;
+		ofxPanel gui;
+
 		ofBufferObject particleBuffer1;
 		ofBufferObject particleBuffer2;
 		ofShader compute;
 		ofShader renderUpdate;
+		vector<float> energyLevels;
+		float energyMax;
+	private:
+		int updateCount;
 		
 };
