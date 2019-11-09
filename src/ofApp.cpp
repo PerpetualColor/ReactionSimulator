@@ -6,9 +6,12 @@ void ofApp::setup(){
 	radius = 0.01;
 	energyMax = 1;
 	updateCount = 0;
+	avgEnergyTotal = 0;
+	avgEnergyCount = 0;
 
 	gui.setup();
-	gui.add(velocityMultiplier.setup("Velocity Multiplier", 1.0021, 1, 1.01));
+	gui.add(velocityMultiplier.setup("Velocity Multiplier", 1.00, 1, 1.01));
+	gui.add(drawParticles.setup("Draw Particles", true));
 
 	compute.setupShaderFromFile(GL_COMPUTE_SHADER, "position_compute.glsl");
 	compute.linkProgram();
@@ -23,6 +26,12 @@ void ofApp::setup(){
 		p.mass_angle_angularVel_reactiveAngle.set(1.0, ofRandom(360), ofRandom(360), 30.0);
 		nParticles++;
 	}
+
+	float e = 0;
+	for (auto &p : particles) {
+		e += 0.5 * p.mass_angle_angularVel_reactiveAngle.x * p.vel.lengthSquared();
+	}
+	initialEnergy = e;
 	
 	
 	/*particles[0].pos.x = 0.3;
@@ -75,11 +84,13 @@ void ofApp::update(){
 	while ((err = glGetError()) != GL_NO_ERROR) {
 		cout << "OpenGL Error: " << err << endl;
 	}
-
 	if (updateCount % 4 == 0) {
 		float e = 0;
 		for (auto &p : particles) {
-			e += 0.5 * p.mass_angle_angularVel_reactiveAngle.x * p.vel.lengthSquared();
+			e += 0.5 * p.mass_angle_angularVel_reactiveAngle.x * (powf(p.vel.x, 2) + powf(p.vel.y, 2));
+			if (isnan((powf(p.vel.x, 2) + powf(p.vel.y, 2)))) {
+				cout << "e is nan: " << p.mass_angle_angularVel_reactiveAngle.x << ", " << (powf(p.vel.x, 2) + powf(p.vel.y, 2)) << endl;
+			}
 		}
 		if (e > energyMax) {
 			float oldEMax = energyMax;
@@ -89,9 +100,8 @@ void ofApp::update(){
 			}
 		}
 
-		avgEnergy *= (updateCount / 4);
-		avgEnergy += e;
-		avgEnergy /= (updateCount / 4) + 1;
+		avgEnergyTotal += e;
+		avgEnergyCount++;
 
 		if (energyLevels.size() < 60) {
 			energyLevels.push_back(e);
@@ -100,6 +110,19 @@ void ofApp::update(){
 			rotate(energyLevels.begin(), energyLevels.begin() + 1, energyLevels.end());
 			energyLevels[energyLevels.size() - 1] = e;
 		}
+		// limit the slope
+		float m = (e - energyLevels[energyLevels.size()-5])/4;
+		float velMultScaleFac = abs(initialEnergy - e);
+		if (velMultScaleFac/initialEnergy > 0.005) { 
+			if (e < initialEnergy && m < 0.0) {
+				velocityMultiplier = velocityMultiplier + (0.0003 * velMultScaleFac);
+			} else if (e > initialEnergy && m > 0.0) {
+				velocityMultiplier = velocityMultiplier - (0.0003 * velMultScaleFac);
+			}
+		} else {
+			velocityMultiplier = 1.0;
+		}
+
 	}
 	updateCount++;
 
@@ -112,17 +135,18 @@ void ofApp::draw(){
 	ofPushMatrix();
 	ofRotateDeg(180);
 	float scaleFac = min(ofGetWidth()-300, ofGetHeight());
-	for (auto &p : particles) {
-		ofPath arc;
-		arc.setStrokeWidth(5);
-		arc.setStrokeColor(ofColor(0));
-		arc.setFillColor(ofColor(0));
-		arc.arc(-300+p.pos.x * scaleFac - scaleFac, p.pos.y * scaleFac - scaleFac, radius * scaleFac + 2, radius * scaleFac + 2, p.mass_angle_angularVel_reactiveAngle.y + 90 - (0.5 * 30), p.mass_angle_angularVel_reactiveAngle.y + 90 + (0.5 * 30));
-		arc.close();
-		arc.draw();
-		ofSetColor(p.color);
-		ofDrawCircle(-300+p.pos.x * scaleFac - scaleFac, p.pos.y * scaleFac - scaleFac, radius * scaleFac);
-		
+	if (drawParticles) {
+		for (auto &p : particles) {
+			ofPath arc;
+			arc.setStrokeWidth(5);
+			arc.setStrokeColor(ofColor(0));
+			arc.setFillColor(ofColor(0));
+			arc.arc(-300+p.pos.x * scaleFac - scaleFac, p.pos.y * scaleFac - scaleFac, radius * scaleFac + 2, radius * scaleFac + 2, p.mass_angle_angularVel_reactiveAngle.y + 90 - (0.5 * 30), p.mass_angle_angularVel_reactiveAngle.y + 90 + (0.5 * 30));
+			arc.close();
+			arc.draw();
+			ofSetColor(p.color);
+			ofDrawCircle(-300+p.pos.x * scaleFac - scaleFac, p.pos.y * scaleFac - scaleFac, radius * scaleFac);	
+		}
 	}
 	ofPopMatrix();
 	ofSetColor(0);
@@ -136,8 +160,10 @@ void ofApp::draw(){
 		energyLine.addVertex(i * 5, 100 + energyGraphHeight - (energyLevels[i] * energyGraphHeight / energyMax));
 	}
 	energyLine.draw();
+	ofDrawBitmapString("Correct Avg. Energy: " + ofToString(initialEnergy, 2), 10, 40);
 	ofDrawBitmapString("Current Avg. Energy: " + ofToString(energyLevels[energyLevels.size() - 1], 2), 10, 80);
-	ofDrawBitmapString("Overall Avg. Energy: " + ofToString(avgEnergy, 2), 10, 60);
+	ofDrawBitmapString("Overall Avg. Energy: " + ofToString(avgEnergyTotal/avgEnergyCount, 2), 10, 60);
+	ofDrawBitmapString("Energy Slope: " + ofToString(energyLevels[energyLevels.size() - 1] - energyLevels[energyLevels.size() - 2], 2), 10, 180);
 
 	gui.setPosition(10, 250);
 	gui.draw();

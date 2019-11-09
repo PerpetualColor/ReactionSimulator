@@ -25,22 +25,34 @@ void main() {
 	// check for collision
 	bool hasCollided = false;
 	vec2 impulse = vec2(0, 0);
+	float minDist = -1;
 	for (int i = 0; i < nParticles; i++) {
 		if (i != gl_GlobalInvocationID.x) {
 			float dist = distance(particlesOrig[gl_GlobalInvocationID.x].pos, particlesOrig[i].pos);
+			
+			
 			if (dist <= radius*2) {
-				Particle p1 = particlesOrig[gl_GlobalInvocationID.x];
-				Particle p2 = particlesOrig[i];
-				particles[gl_GlobalInvocationID.x].vel = 
-				velocityMult *
-				(p1.vel - 
-				(2 * p2.mass.x / (p1.mass.x + p2.mass.x)) * 
-				(dot(p1.vel - p2.vel, p1.pos - p2.pos) / (pow(length(p1.pos - p2.pos), 2))) *
-				(p1.pos - p2.pos));
-				// move the particles out of radius
-				vec2 dir = normalize(p1.pos - p2.pos);
-				float amount = (2 * radius - dist)/2;
-				particles[gl_GlobalInvocationID.x].pos += dir * amount;
+				if (dist < minDist || minDist == -1) {
+					minDist = dist;
+					Particle p1 = particlesOrig[gl_GlobalInvocationID.x];
+					Particle p2 = particlesOrig[i];
+
+					float lengthSquared = pow(distance(p1.pos, p2.pos), 2);
+					if (lengthSquared == 0) {
+						lengthSquared = pow(2 * radius, 2);
+					}
+
+					particles[gl_GlobalInvocationID.x].vel = 
+					velocityMult *
+					(p1.vel - 
+					(2 * p2.mass.x / (p1.mass.x + p2.mass.x)) * 
+					(dot(p1.vel - p2.vel, p1.pos - p2.pos) / (lengthSquared)) *
+					(p1.pos - p2.pos));
+					// move the particles out of radius
+					vec2 dir = normalize(p1.pos - p2.pos);
+					float amount = (2 * radius - dist)/2;
+					particles[gl_GlobalInvocationID.x].pos += dir * amount;
+				}
 			}
 		}
 	}

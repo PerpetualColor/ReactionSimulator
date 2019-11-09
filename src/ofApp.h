@@ -33,9 +33,12 @@ class ofApp : public ofBaseApp{
 		float fps;
 		int nParticles;
 		float radius;
-		float avgEnergy;
+		float avgEnergyTotal;
+		int avgEnergyCount;
+		float initialEnergy;
 		
 		ofxFloatSlider velocityMultiplier;
+		ofxToggle drawParticles;
 		ofxPanel gui;
 
 		ofBufferObject particleBuffer1;
