@@ -21,15 +21,34 @@ class ofApp : public ofBaseApp{
 		void windowResized(int w, int h);
 		void dragEvent(ofDragInfo dragInfo);
 		void gotMessage(ofMessage msg);
+		void restartSim();
 
 		struct Particle {
 			ofVec2f pos;
 			ofVec2f vel;
 			ofVec4f mass_angle_angularVel_reactiveAngle;
 			ofFloatColor color;
+			ofVec4f collision_state;
+		};
+
+		struct ParticleType {
+			float reactiveAngle;
+			ofFloatColor color;
+			float mass;
+		};
+
+		struct Reaction {
+			GLint reactantA;
+			GLint reactantB;
+			GLint productC;
+			GLint productD;
+			GLfloat deltaE;
 		};
 
 		vector<Particle> particles;
+		vector<ParticleType> particleTypes;
+		vector<Reaction> reactions;
+		
 		float fps;
 		int nParticles;
 		float radius;
@@ -39,10 +58,13 @@ class ofApp : public ofBaseApp{
 		
 		ofxFloatSlider velocityMultiplier;
 		ofxToggle drawParticles;
+		ofxButton restart;
 		ofxPanel gui;
 
 		ofBufferObject particleBuffer1;
 		ofBufferObject particleBuffer2;
+		ofBufferObject colorBuffer;
+
 		ofShader compute;
 		ofShader renderUpdate;
 		vector<float> energyLevels;
