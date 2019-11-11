@@ -21,7 +21,9 @@ class ofApp : public ofBaseApp{
 		void windowResized(int w, int h);
 		void dragEvent(ofDragInfo dragInfo);
 		void gotMessage(ofMessage msg);
-		void restartSim();
+
+		void radiusChanged(float &newRadius);
+		void loadFile();
 
 		struct Particle {
 			ofVec2f pos;
@@ -48,6 +50,9 @@ class ofApp : public ofBaseApp{
 		vector<Particle> particles;
 		vector<ParticleType> particleTypes;
 		vector<Reaction> reactions;
+		vector<vector<float>> concentrationData;
+		
+		bool initialSetup;
 		
 		float fps;
 		int nParticles;
@@ -55,11 +60,17 @@ class ofApp : public ofBaseApp{
 		float avgEnergyTotal;
 		int avgEnergyCount;
 		float initialEnergy;
-		
-		ofxFloatSlider velocityMultiplier;
-		ofxToggle drawParticles;
-		ofxButton restart;
+
 		ofxPanel gui;
+		ofxFloatSlider guiAdjustVelocity;
+		ofxToggle guiDrawParticles;
+		ofxButton guiRestart;
+		ofxToggle guiPause;
+
+		ofxPanel particleGui;
+		ofParameter<float> guiParticleRadius;
+		vector<ofParameter<int>> initParticleCountsData;
+		ofParameterGroup initParticleCounts;
 
 		ofBufferObject particleBuffer1;
 		ofBufferObject particleBuffer2;
@@ -71,5 +82,4 @@ class ofApp : public ofBaseApp{
 		float energyMax;
 	private:
 		int updateCount;
-		
 };
