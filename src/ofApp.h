@@ -24,6 +24,7 @@ class ofApp : public ofBaseApp{
 
 		void radiusChanged(float &newRadius);
 		void loadFile();
+		void framerateLimiterToggle(bool &newState);
 
 		struct Particle {
 			ofVec2f pos;
@@ -42,8 +43,8 @@ class ofApp : public ofBaseApp{
 		struct Reaction {
 			GLint reactantA;
 			GLint reactantB;
-			GLint productC;
-			GLint productD;
+			vector<int> products;
+			GLfloat activationEnergy;
 			GLfloat deltaE;
 		};
 
@@ -66,6 +67,7 @@ class ofApp : public ofBaseApp{
 		ofxToggle guiDrawParticles;
 		ofxButton guiRestart;
 		ofxToggle guiPause;
+		ofxToggle guiLimitFramerate;
 
 		ofxPanel particleGui;
 		ofParameter<float> guiParticleRadius;
