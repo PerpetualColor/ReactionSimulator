@@ -1,0 +1,6 @@
+Particle A 360 0 255 255 2.8
+Particle B 360 0 255 0 0.4
+Particle C 360 255 0 0 3.2
+
+Reaction 0.02 0.01 A B -> C
+Reaction 0.02 -0.02 C C -> A A B B
