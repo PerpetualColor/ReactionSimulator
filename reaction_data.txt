@@ -1,5 +1,0 @@
-Particle A 60 0 255 255 1
-Particle B 30 0 255 0 2
-Particle C 120 255 0 0 3
-
-Reaction A A -> B 0 0.02
