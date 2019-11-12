@@ -8,6 +8,7 @@ void ofApp::setup() {
 	particleGui = {};
 	initParticleCounts = {};
 	concentrationData = {};
+	concentrationRawData = {};
 	particles.resize(0);
 
 	loadFile();
@@ -17,6 +18,7 @@ void ofApp::setup() {
 	updateCount = 0;
 	avgEnergyTotal = 0;
 	avgEnergyCount = 0;
+	maxNTypeParticle = 0;
 
 	vector<ofFloatColor> particleColors;
 	particleColors.resize(particleTypes.size());
@@ -35,6 +37,7 @@ void ofApp::setup() {
 		gui.add(guiAdjustVelocity.setup("Velocity Multiplier", 1.00, 0.99, 1.01));
 		gui.add(guiDrawParticles.setup("Draw Particles", true));
 		gui.add(guiRestart.setup("Restart"));
+		gui.add(guiUseMoleFraction.setup("Mole Fraction/Raw Data", true));
 		gui.setName("Debug");
 
 		// ofSetFrameRate(60);
@@ -68,6 +71,10 @@ void ofApp::setup() {
 	particleGui.add(initParticleCounts);
 	particleGui.setName("Particle Info");
 
+	addEnergyGui.setup();
+	guiAddEnergy.addListener(this, &ofApp::addEnergy);
+	addEnergyGui.add(guiEnergyToAdd.setup("Amount",0, -100, 100));
+	addEnergyGui.add(guiAddEnergy.setup("Add"));
 
 	compute.setupShaderFromFile(GL_COMPUTE_SHADER, "position_compute.glsl");
 	compute.linkProgram();
@@ -82,13 +89,17 @@ void ofApp::setup() {
 			p.vel.set(ofRandom(0.5) - 0.25, ofRandom(0.5) - 0.25);
 			p.mass_angle_angularVel_reactiveAngle.set(particleTypes[i + 1].mass, ofRandom(720) - 360, ofRandom(720) - 360, particleTypes[i + 1].reactiveAngle);
 			p.collision_state.set(0, i + 1, 0, 0);
-			concentrationData[int(p.collision_state.y)].back() += 1;
+			concentrationData[int(p.collision_state.y)].back() += 1; 
 			nParticles++;
 			particles.push_back(p);
 		}
 	}
 
 	for (int i = 1; i < concentrationData.size(); i++) {
+		concentrationRawData[i].back() = concentrationData[i].back();
+		if (concentrationRawData[i].back() > maxNTypeParticle) {
+			maxNTypeParticle = concentrationRawData[i].back();
+		}
 		concentrationData[i].back() /= nParticles;
 	}
 
@@ -118,6 +129,10 @@ void ofApp::setup() {
 
 void ofApp::framerateLimiterToggle(bool &newState) {
 	ofSetVerticalSync(newState);
+}
+
+void ofApp::addEnergy() {
+	initialEnergy += guiEnergyToAdd;
 }
 
 void ofApp::loadFile() {
@@ -209,8 +224,10 @@ void ofApp::loadFile() {
 	}
 
 	concentrationData.resize(particleTypes.size());
+	concentrationRawData.resize(particleTypes.size());
 	for (int i = 1; i < concentrationData.size(); i++) {
 		concentrationData[i].push_back(0);
+		concentrationRawData[i].push_back(0);
 	}
 
 }
@@ -244,6 +261,7 @@ void ofApp::update() {
 		// add zeroed concentration values
 		for (int i = 1; i < concentrationData.size(); i++) {
 			concentrationData[i].push_back(0);
+			concentrationRawData[i].push_back(0);
 		}
 
 		// collision index is a particle which is not unavailable
@@ -288,7 +306,7 @@ void ofApp::update() {
 							particles[i].mass_angle_angularVel_reactiveAngle.w = particleTypes[productType].reactiveAngle;
 							particles[i].collision_state.y = productType;
 
-							initialEnergy += energyChange;
+							initialEnergy -= curReaction.deltaE;
 						}
 					}
 					else {
@@ -326,6 +344,10 @@ void ofApp::update() {
 			concentrationData[int(particles[i].collision_state.y)].back() += 1;
 		}
 		for (int i = 1; i < concentrationData.size(); i++) {
+			concentrationRawData[i].back() = concentrationData[i].back();
+			if (concentrationRawData[i].back() > maxNTypeParticle) {
+				maxNTypeParticle = concentrationRawData[i].back();
+			}
 			concentrationData[i].back() /= nParticles;
 		}
 
@@ -407,7 +429,7 @@ void ofApp::draw() {
 	float scaleFac = min(ofGetWidth() - 900, ofGetHeight());
 	if (guiDrawParticles) {
 		for (auto &p : particles) {
-			if (p.mass_angle_angularVel_reactiveAngle.w > 0) {
+			if (p.mass_angle_angularVel_reactiveAngle.w > 0 && p.mass_angle_angularVel_reactiveAngle.w < 360) {
 				ofPath arc;
 				arc.setStrokeWidth(5);
 				arc.setStrokeColor(ofColor(255));
@@ -453,13 +475,29 @@ void ofApp::draw() {
 		ofPolyline curGraph;
 		ofSetColor(particleTypes[i].color);
 		for (int j = 0; j < concentrationData[i].size(); j++) {
-			curGraph.addVertex(xOffset + (5 * j * xFac), 20 + (((graphHeight + 30) * i) - (concentrationData[i][j] * graphHeight)));
+			if (guiUseMoleFraction) {
+				curGraph.addVertex(xOffset + (5 * j * xFac), 20 + (((graphHeight + 30) * i) - (concentrationData[i][j] * graphHeight)));
+			}
+			else {
+				curGraph.addVertex(xOffset + (5 * j * xFac), 20 + (((graphHeight + 30) * i) - (concentrationRawData[i][j] * graphHeight / maxNTypeParticle)));
+			}
 		}
 		curGraph.draw();
-		ofDrawBitmapString(ofToString(concentrationData[i].back(), 2), (xOffset - 16) + (5 * (concentrationData[i].size() - 1) * xFac), 20 - 11 + (((graphHeight + 30) * i) - (concentrationData[i].back() * graphHeight)));
+		if (guiUseMoleFraction) {
+			ofDrawBitmapString(ofToString(concentrationData[i].back(), 2), (xOffset - 16) + (5 * (concentrationData[i].size() - 1) * xFac), 20 - 11 + (((graphHeight + 30) * i) - (concentrationData[i].back() * graphHeight)));
+		}
+		else {
+			ofDrawBitmapString(ofToString(concentrationRawData[i].back()), (xOffset - 16) + (5 * (concentrationData[i].size() - 1) * xFac), 20 - 11 + (((graphHeight + 30) * i) - (concentrationRawData[i].back() * graphHeight / maxNTypeParticle)));
+		}
 		int markers = 4;
 		for (int n = 0; n <= markers; n++) {
-			ofDrawBitmapString(ofToString((float)n / (float)markers, 2), xOffset - 8, 20 + (((graphHeight + 30) * i) - (((float)n / markers) * graphHeight)));
+			if (guiUseMoleFraction) {
+				ofDrawBitmapString(ofToString((float)n / (float)markers, 2), xOffset - 8, 20 + (((graphHeight + 30) * i) - (((float)n / markers) * graphHeight)));
+			}
+			else {
+				ofDrawBitmapString(ofToString((float)n * maxNTypeParticle / (float)markers, 2), xOffset - 8, 20 + (((graphHeight + 30) * i) - (((float)n / markers) * graphHeight)));
+			}
+
 			ofDrawBitmapString(ofToString((1.0 / 60) * concentrationData[1].size() * (float)n / (float)markers, 2), xOffset + (n * (300 / markers)), 35 + ((graphHeight + 30) * i));
 		}
 
@@ -469,8 +507,11 @@ void ofApp::draw() {
 	gui.setPosition(10, 190);
 	gui.draw();
 
-	particleGui.setPosition(10, 330);
+	particleGui.setPosition(10, 410);
 	particleGui.draw();
+
+	addEnergyGui.setPosition(10, 320);
+	addEnergyGui.draw();
 }
 
 //--------------------------------------------------------------

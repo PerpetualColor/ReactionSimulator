@@ -25,6 +25,7 @@ class ofApp : public ofBaseApp{
 		void radiusChanged(float &newRadius);
 		void loadFile();
 		void framerateLimiterToggle(bool &newState);
+		void addEnergy();
 
 		struct Particle {
 			ofVec2f pos;
@@ -52,6 +53,8 @@ class ofApp : public ofBaseApp{
 		vector<ParticleType> particleTypes;
 		vector<Reaction> reactions;
 		vector<vector<float>> concentrationData;
+		vector<vector<int>> concentrationRawData;
+		int maxNTypeParticle;
 		
 		bool initialSetup;
 		
@@ -68,11 +71,16 @@ class ofApp : public ofBaseApp{
 		ofxButton guiRestart;
 		ofxToggle guiPause;
 		ofxToggle guiLimitFramerate;
+		ofxToggle guiUseMoleFraction;
 
 		ofxPanel particleGui;
 		ofParameter<float> guiParticleRadius;
 		vector<ofParameter<int>> initParticleCountsData;
 		ofParameterGroup initParticleCounts;
+
+		ofxPanel addEnergyGui;
+		ofxFloatSlider guiEnergyToAdd;
+		ofxButton guiAddEnergy;
 
 		ofBufferObject particleBuffer1;
 		ofBufferObject particleBuffer2;
