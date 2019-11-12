@@ -3,13 +3,14 @@
 #include <fstream>
 
 //--------------------------------------------------------------
-void ofApp::setup(){
+void ofApp::setup() {
 	// zero all values
 	particleGui = {};
 	initParticleCounts = {};
 	concentrationData = {};
+	concentrationRawData = {};
 	particles.resize(0);
-	
+
 	loadFile();
 
 	nParticles = 0;
@@ -17,6 +18,7 @@ void ofApp::setup(){
 	updateCount = 0;
 	avgEnergyTotal = 0;
 	avgEnergyCount = 0;
+	maxNTypeParticle = 0;
 
 	vector<ofFloatColor> particleColors;
 	particleColors.resize(particleTypes.size());
@@ -28,15 +30,19 @@ void ofApp::setup(){
 		radius = 0.01;
 		guiRestart.addListener(this, &ofApp::setup);
 		guiParticleRadius.addListener(this, &ofApp::radiusChanged);
+		guiLimitFramerate.addListener(this, &ofApp::framerateLimiterToggle);
 		gui.setup();
 		gui.add(guiPause.setup("Pause", false));
+		gui.add(guiLimitFramerate.setup("Limit framerate", true));
 		gui.add(guiAdjustVelocity.setup("Velocity Multiplier", 1.00, 0.99, 1.01));
 		gui.add(guiDrawParticles.setup("Draw Particles", true));
 		gui.add(guiRestart.setup("Restart"));
+		gui.add(guiUseMoleFraction.setup("Mole Fraction/Raw Data", true));
 		gui.setName("Debug");
 
-		ofSetFrameRate(60);
-		
+		// ofSetFrameRate(60);
+		ofSetVerticalSync(true);
+
 		initParticleCountsData.resize(particleTypes.size() - 1);
 		for (int i = 0; i < initParticleCountsData.size(); i++) {
 			if (i == 0) {
@@ -65,10 +71,14 @@ void ofApp::setup(){
 	particleGui.add(initParticleCounts);
 	particleGui.setName("Particle Info");
 
+	addEnergyGui.setup();
+	guiAddEnergy.addListener(this, &ofApp::addEnergy);
+	addEnergyGui.add(guiEnergyToAdd.setup("Amount",0, -100, 100));
+	addEnergyGui.add(guiAddEnergy.setup("Add"));
 
 	compute.setupShaderFromFile(GL_COMPUTE_SHADER, "position_compute.glsl");
 	compute.linkProgram();
-	
+
 	particles.resize(nParticles);
 
 	for (int i = 0; i < initParticleCountsData.size(); i++) {
@@ -77,18 +87,22 @@ void ofApp::setup(){
 			p.pos.x = ofRandom(1.0);
 			p.pos.y = ofRandom(1.0);
 			p.vel.set(ofRandom(0.5) - 0.25, ofRandom(0.5) - 0.25);
-			p.mass_angle_angularVel_reactiveAngle.set(particleTypes[i+1].mass, ofRandom(360), ofRandom(720) - 360, particleTypes[i+1].reactiveAngle);
-			p.collision_state.set(0, i+1, 0, 0);
-			concentrationData[int(p.collision_state.y)].back() += 1;
+			p.mass_angle_angularVel_reactiveAngle.set(particleTypes[i + 1].mass, ofRandom(720) - 360, ofRandom(720) - 360, particleTypes[i + 1].reactiveAngle);
+			p.collision_state.set(0, i + 1, 0, 0);
+			concentrationData[int(p.collision_state.y)].back() += 1; 
 			nParticles++;
 			particles.push_back(p);
 		}
 	}
 
 	for (int i = 1; i < concentrationData.size(); i++) {
+		concentrationRawData[i].back() = concentrationData[i].back();
+		if (concentrationRawData[i].back() > maxNTypeParticle) {
+			maxNTypeParticle = concentrationRawData[i].back();
+		}
 		concentrationData[i].back() /= nParticles;
 	}
-	
+
 	if (initialSetup) {
 		colorBuffer.allocate(particleColors, GL_STATIC_READ);
 		particleBuffer1.allocate(particles, GL_DYNAMIC_DRAW);
@@ -113,6 +127,14 @@ void ofApp::setup(){
 
 }
 
+void ofApp::framerateLimiterToggle(bool &newState) {
+	ofSetVerticalSync(newState);
+}
+
+void ofApp::addEnergy() {
+	initialEnergy += guiEnergyToAdd;
+}
+
 void ofApp::loadFile() {
 	ifstream inputFile;
 	inputFile.open("reaction_data.txt");
@@ -132,11 +154,11 @@ void ofApp::loadFile() {
 
 		// A + A -> B, deltaE = 0
 		reactions.push_back(Reaction{
-			1, 1, 2, 0, 0
+			1, 1, { 2 }, 0, 0
 			});
 		// A + B -> C + D, deltaE = 0.01
 		reactions.push_back(Reaction{
-			1, 2, 3, 4, 0.05
+			1, 2, {3, 4}, 0.05, 0
 			});
 	}
 	else {
@@ -147,31 +169,41 @@ void ofApp::loadFile() {
 			string type;
 			inputStream >> type;
 			if (type == "Reaction") {
-				char a, b, c, d;
-				float e;
+				char a, b;
+				float eA, dE;
+				inputStream >> eA;
+				inputStream >> dE;
 				inputStream >> a;
 				inputStream >> b;
 				inputStream.ignore(100, ' ');
 				inputStream.ignore(100, ' ');
-				inputStream >> c;
-				inputStream >> d;
-				inputStream >> e;
+				vector<char> productsChars;
+				while (!inputStream.eof()) {
+					char p;
+					
+					inputStream >> p;
+					inputStream.ignore(1);
+					productsChars.push_back(p);
+				}
+				
+				vector<int> products;
+				for (auto c : productsChars) {
+					if (c != '0') {
+						products.push_back(c + 1 - 'A');
+					}
+				}
 
 				int A = a + 1 - 'A';
 				int B = b + 1 - 'A';
-				int C = c + 1 - 'A';
-				int D = d + 1 - 'A';
-				if (c == '0') {
-					C = 0;
-				}
-				if (d == '0') {
-					D = 0;
-				}
 				reactions.push_back(Reaction{
-					A, B, C, D, e
+					A, B, products, eA, dE
 					});
 
-				cout << "reaction: " << A << " + " << B << " -> " << C << " + " << D << endl;
+				cout << "reaction: " << A << " + " << B << " -> ";
+				for (auto i : products) {
+					cout << i << " ";
+				}
+				cout << endl;
 			}
 			else if (type == "Particle") {
 				char A;
@@ -192,8 +224,10 @@ void ofApp::loadFile() {
 	}
 
 	concentrationData.resize(particleTypes.size());
+	concentrationRawData.resize(particleTypes.size());
 	for (int i = 1; i < concentrationData.size(); i++) {
 		concentrationData[i].push_back(0);
+		concentrationRawData[i].push_back(0);
 	}
 
 }
@@ -203,8 +237,8 @@ void ofApp::radiusChanged(float &newRadius) {
 }
 
 //--------------------------------------------------------------
-void ofApp::update(){
-	
+void ofApp::update() {
+
 	fps = ofGetFrameRate();
 
 	if (!guiPause) {
@@ -227,6 +261,7 @@ void ofApp::update(){
 		// add zeroed concentration values
 		for (int i = 1; i < concentrationData.size(); i++) {
 			concentrationData[i].push_back(0);
+			concentrationRawData[i].push_back(0);
 		}
 
 		// collision index is a particle which is not unavailable
@@ -247,45 +282,58 @@ void ofApp::update(){
 				}
 
 				if (reactionExists) {
-					unavailableIndices.insert(idx);
-					unavailableIndices.insert(i);
+					// perform a reaction
 
-					// only one product
-					if (curReaction.productC == 0 || curReaction.productD == 0) {
-						removedIndices.push_back(idx);
-						// momentum is conserved, will be stored in the current particle, mass is the sum of the old ones, reaction angle is 0
+					if (curReaction.products.size() == 1) {
+						// Temperature is a measure of the particle's velocity. However, conservation of momentum cannot be violated.
+						// deltaE of the energy lost is accounted for by the chemical bonds. The rest becomes angular momentum
 						float totalMass = particles[i].mass_angle_angularVel_reactiveAngle.x + particles[idx].mass_angle_angularVel_reactiveAngle.x;
-						ofVec2f newVel = ((particles[i].mass_angle_angularVel_reactiveAngle.x * particles[i].vel) + (particles[idx].mass_angle_angularVel_reactiveAngle.x * particles[idx].vel)) / totalMass;
+						ofVec2f vFinal = ((particles[i].mass_angle_angularVel_reactiveAngle.x * particles[i].vel) + (particles[idx].mass_angle_angularVel_reactiveAngle.x * particles[idx].vel)) / totalMass;
+						float kFinal = 0.5 * totalMass * vFinal.lengthSquared();
+						float kInitial = 0.5 * (particles[i].mass_angle_angularVel_reactiveAngle.x * particles[i].vel.lengthSquared() - particles[idx].mass_angle_angularVel_reactiveAngle.x * particles[idx].vel.lengthSquared());
+						float energyChange = kFinal - kInitial;
 
-						float deltaE = 0.5 * ((totalMass * newVel.lengthSquared()) -
-							((particles[i].mass_angle_angularVel_reactiveAngle.x * particles[i].vel.lengthSquared()) +
-							(particles[idx].mass_angle_angularVel_reactiveAngle.x * particles[idx].vel.lengthSquared())));
-						initialEnergy += deltaE;
+						if (-energyChange > curReaction.activationEnergy) {
+							// the reaction occurs
+							unavailableIndices.insert(i);
+							unavailableIndices.insert(idx);
+							removedIndices.push_back(idx);
 
-						particles[i].vel = newVel;
-						particles[i].mass_angle_angularVel_reactiveAngle.x += particles[idx].mass_angle_angularVel_reactiveAngle.x;
-						int newState = max(curReaction.productC, curReaction.productD);
-						particles[i].mass_angle_angularVel_reactiveAngle.w = particleTypes[newState].reactiveAngle;
-						particles[i].collision_state.y = newState;
+							particles[i].mass_angle_angularVel_reactiveAngle.x = totalMass;
+							particles[i].vel = vFinal;
+							int productType = curReaction.products[0];
+
+							particles[i].mass_angle_angularVel_reactiveAngle.w = particleTypes[productType].reactiveAngle;
+							particles[i].collision_state.y = productType;
+
+							initialEnergy -= curReaction.deltaE;
+						}
 					}
-					// two products; one particle will be turned into each
 					else {
-						float kInitial = (0.5 * particles[i].mass_angle_angularVel_reactiveAngle.x * particles[i].vel.lengthSquared())
-							+ (0.5 * particles[idx].mass_angle_angularVel_reactiveAngle.x * particles[idx].vel.lengthSquared());
-						if (kInitial > curReaction.deltaE) {
+						// we know the final kinetic energy and momentum, just has to be divided among particles
+						float kFinal = 0.5 * (particles[i].mass_angle_angularVel_reactiveAngle.x * particles[i].vel.lengthSquared() - particles[idx].mass_angle_angularVel_reactiveAngle.x * particles[idx].vel.lengthSquared());
+						if (kFinal > curReaction.activationEnergy) {
+							float totalMass = particles[i].mass_angle_angularVel_reactiveAngle.x + particles[idx].mass_angle_angularVel_reactiveAngle.x;
 
-							// change the properties of each; this is where it is important to have accurate mass values in the vector
-							particles[i].mass_angle_angularVel_reactiveAngle.x = particleTypes[curReaction.productC].mass;
-							particles[i].mass_angle_angularVel_reactiveAngle.w = particleTypes[curReaction.productC].reactiveAngle;
-							particles[i].collision_state.y = curReaction.productC;
+							ofVec2f vFinal = ((particles[i].mass_angle_angularVel_reactiveAngle.x * particles[i].vel) + (particles[idx].mass_angle_angularVel_reactiveAngle.x * particles[idx].vel));
+							vFinal = vFinal.normalize();
+							unavailableIndices.insert(i);
+							unavailableIndices.insert(idx);
+							removedIndices.push_back(idx);
+							removedIndices.push_back(i);
+							ofVec2f initPos = particles[i].pos;
+							float kPart = kFinal / curReaction.products.size();
+			
+							// velocity is the required velocity to maintain kinetic energy in the direction of the collision if it were inelastic plus a random rotation
+							for (int d = 0; d < curReaction.products.size(); d ++) {
+								Particle p;
+								p.pos = initPos + (2 * radius * ofVec2f(1, 0).rotate(d * 360 / curReaction.products.size()));
+								p.mass_angle_angularVel_reactiveAngle.set(particleTypes[curReaction.products[d]].mass, ofRandom(720) - 360, ofRandom(720) - 360, particleTypes[curReaction.products[d]].reactiveAngle);
+								p.vel = vFinal.rotate(ofRandom(90) - 45) * sqrt(2 * kPart / p.mass_angle_angularVel_reactiveAngle.x);
+								p.collision_state.y = curReaction.products[d];
 
-							particles[idx].mass_angle_angularVel_reactiveAngle.x = particleTypes[curReaction.productD].mass;
-							particles[idx].mass_angle_angularVel_reactiveAngle.w = particleTypes[curReaction.productD].reactiveAngle;
-							particles[idx].collision_state.y = curReaction.productD;
-
-							float velMultFac = sqrtf((kInitial - curReaction.deltaE) / kInitial);
-							particles[i].vel *= velMultFac;
-							particles[idx].vel *= velMultFac;
+								particles.push_back(p);
+							}
 
 							initialEnergy -= curReaction.deltaE;
 						}
@@ -296,6 +344,10 @@ void ofApp::update(){
 			concentrationData[int(particles[i].collision_state.y)].back() += 1;
 		}
 		for (int i = 1; i < concentrationData.size(); i++) {
+			concentrationRawData[i].back() = concentrationData[i].back();
+			if (concentrationRawData[i].back() > maxNTypeParticle) {
+				maxNTypeParticle = concentrationRawData[i].back();
+			}
 			concentrationData[i].back() /= nParticles;
 		}
 
@@ -371,13 +423,13 @@ void ofApp::update(){
 }
 
 //--------------------------------------------------------------
-void ofApp::draw(){
+void ofApp::draw() {
 	ofClear(0);
 	ofFill();
-	float scaleFac = min(ofGetWidth()-900, ofGetHeight());
+	float scaleFac = min(ofGetWidth() - 900, ofGetHeight());
 	if (guiDrawParticles) {
 		for (auto &p : particles) {
-			if (p.mass_angle_angularVel_reactiveAngle.w > 0) {
+			if (p.mass_angle_angularVel_reactiveAngle.w > 0 && p.mass_angle_angularVel_reactiveAngle.w < 360) {
 				ofPath arc;
 				arc.setStrokeWidth(5);
 				arc.setStrokeColor(ofColor(255));
@@ -387,7 +439,7 @@ void ofApp::draw(){
 				arc.draw();
 			}
 			ofSetColor(p.color);
-			ofDrawCircle(300 + p.pos.x * scaleFac, (1 - p.pos.y) * scaleFac, radius * scaleFac);	
+			ofDrawCircle(300 + p.pos.x * scaleFac, (1 - p.pos.y) * scaleFac, radius * scaleFac);
 		}
 	}
 	ofSetColor(255);
@@ -403,11 +455,11 @@ void ofApp::draw(){
 	energyLine.draw();
 	ofDrawBitmapString("Correct Avg. Energy: " + ofToString(initialEnergy, 2), 10, 40);
 	ofDrawBitmapString("Current Avg. Energy: " + ofToString(energyLevels[energyLevels.size() - 1], 2), 10, 80);
-	ofDrawBitmapString("Overall Avg. Energy: " + ofToString(avgEnergyTotal/avgEnergyCount, 2), 10, 60);
+	ofDrawBitmapString("Overall Avg. Energy: " + ofToString(avgEnergyTotal / avgEnergyCount, 2), 10, 60);
 	ofDrawBitmapString("Energy Slope: " + ofToString((energyLevels.size() > 2 ? energyLevels[energyLevels.size() - 1] - energyLevels[energyLevels.size() - 2] : 0), 2), 10, 180);
 
 	// create graphs of particle concentrations
-	
+
 	int xOffset = 300 + 30 + scaleFac;
 	ofDrawBitmapString("Particle Concentrations (mole fraction)", xOffset, 10);
 	float xFac;
@@ -423,14 +475,30 @@ void ofApp::draw(){
 		ofPolyline curGraph;
 		ofSetColor(particleTypes[i].color);
 		for (int j = 0; j < concentrationData[i].size(); j++) {
-			curGraph.addVertex(xOffset + (5 * j * xFac), 20 + (((graphHeight + 30) * i) - (concentrationData[i][j] * graphHeight)));
+			if (guiUseMoleFraction) {
+				curGraph.addVertex(xOffset + (5 * j * xFac), 20 + (((graphHeight + 30) * i) - (concentrationData[i][j] * graphHeight)));
+			}
+			else {
+				curGraph.addVertex(xOffset + (5 * j * xFac), 20 + (((graphHeight + 30) * i) - (concentrationRawData[i][j] * graphHeight / maxNTypeParticle)));
+			}
 		}
 		curGraph.draw();
-		ofDrawBitmapString(ofToString(concentrationData[i].back(), 2), (xOffset - 16) + (5 * (concentrationData[i].size() - 1) * xFac), 20 - 11 + (((graphHeight + 30) * i) - (concentrationData[i].back() * graphHeight)));
+		if (guiUseMoleFraction) {
+			ofDrawBitmapString(ofToString(concentrationData[i].back(), 2), (xOffset - 16) + (5 * (concentrationData[i].size() - 1) * xFac), 20 - 11 + (((graphHeight + 30) * i) - (concentrationData[i].back() * graphHeight)));
+		}
+		else {
+			ofDrawBitmapString(ofToString(concentrationRawData[i].back()), (xOffset - 16) + (5 * (concentrationData[i].size() - 1) * xFac), 20 - 11 + (((graphHeight + 30) * i) - (concentrationRawData[i].back() * graphHeight / maxNTypeParticle)));
+		}
 		int markers = 4;
 		for (int n = 0; n <= markers; n++) {
-			ofDrawBitmapString(ofToString((float) n / (float) markers, 2), xOffset - 8, 20 + (((graphHeight + 30) * i) - (((float) n / markers) * graphHeight)));
-			ofDrawBitmapString(ofToString( (1.0/60) * concentrationData[1].size() * (float)n / (float) markers, 2), xOffset + (n * (300 / markers)), 35 + ((graphHeight + 30) * i));
+			if (guiUseMoleFraction) {
+				ofDrawBitmapString(ofToString((float)n / (float)markers, 2), xOffset - 8, 20 + (((graphHeight + 30) * i) - (((float)n / markers) * graphHeight)));
+			}
+			else {
+				ofDrawBitmapString(ofToString((float)n * maxNTypeParticle / (float)markers, 2), xOffset - 8, 20 + (((graphHeight + 30) * i) - (((float)n / markers) * graphHeight)));
+			}
+
+			ofDrawBitmapString(ofToString((1.0 / 60) * concentrationData[1].size() * (float)n / (float)markers, 2), xOffset + (n * (300 / markers)), 35 + ((graphHeight + 30) * i));
 		}
 
 	}
@@ -438,63 +506,66 @@ void ofApp::draw(){
 
 	gui.setPosition(10, 190);
 	gui.draw();
-	
-	particleGui.setPosition(10, 330);
+
+	particleGui.setPosition(10, 410);
 	particleGui.draw();
+
+	addEnergyGui.setPosition(10, 320);
+	addEnergyGui.draw();
 }
 
 //--------------------------------------------------------------
-void ofApp::keyPressed(int key){
-
-}
-
-//--------------------------------------------------------------
-void ofApp::keyReleased(int key){
-
-}
-
-//--------------------------------------------------------------
-void ofApp::mouseMoved(int x, int y ){
+void ofApp::keyPressed(int key) {
 
 }
 
 //--------------------------------------------------------------
-void ofApp::mouseDragged(int x, int y, int button){
+void ofApp::keyReleased(int key) {
 
 }
 
 //--------------------------------------------------------------
-void ofApp::mousePressed(int x, int y, int button){
+void ofApp::mouseMoved(int x, int y) {
 
 }
 
 //--------------------------------------------------------------
-void ofApp::mouseReleased(int x, int y, int button){
+void ofApp::mouseDragged(int x, int y, int button) {
+
+}
+
+//--------------------------------------------------------------
+void ofApp::mousePressed(int x, int y, int button) {
+
+}
+
+//--------------------------------------------------------------
+void ofApp::mouseReleased(int x, int y, int button) {
 	compute.setupShaderFromFile(GL_COMPUTE_SHADER, "position_compute.glsl");
 	compute.linkProgram();
 }
 
 //--------------------------------------------------------------
-void ofApp::mouseEntered(int x, int y){
+void ofApp::mouseEntered(int x, int y) {
 
 }
 
 //--------------------------------------------------------------
-void ofApp::mouseExited(int x, int y){
+void ofApp::mouseExited(int x, int y) {
 
 }
 
 //--------------------------------------------------------------
-void ofApp::windowResized(int w, int h){
+void ofApp::windowResized(int w, int h) {
 
 }
 
 //--------------------------------------------------------------
-void ofApp::gotMessage(ofMessage msg){
+void ofApp::gotMessage(ofMessage msg) {
 
 }
 
 //--------------------------------------------------------------
-void ofApp::dragEvent(ofDragInfo dragInfo){ 
+void ofApp::dragEvent(ofDragInfo dragInfo) {
 
 }
