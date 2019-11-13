@@ -55,6 +55,7 @@ class ofApp : public ofBaseApp{
 		vector<vector<float>> concentrationData;
 		vector<vector<int>> concentrationRawData;
 		int maxNTypeParticle;
+		int bufferSize;
 		
 		bool initialSetup;
 		

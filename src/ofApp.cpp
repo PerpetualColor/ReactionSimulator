@@ -19,6 +19,7 @@ void ofApp::setup() {
 	avgEnergyTotal = 0;
 	avgEnergyCount = 0;
 	maxNTypeParticle = 0;
+	bufferSize = 0;
 
 	vector<ofFloatColor> particleColors;
 	particleColors.resize(particleTypes.size());
@@ -80,7 +81,6 @@ void ofApp::setup() {
 	compute.linkProgram();
 
 	particles.resize(nParticles);
-
 	for (int i = 0; i < initParticleCountsData.size(); i++) {
 		for (int j = 0; j < initParticleCountsData[i]; j++) {
 			Particle p;
@@ -94,6 +94,22 @@ void ofApp::setup() {
 			particles.push_back(p);
 		}
 	}
+	/* -- DEBUG SETUP --
+	Particle p1;
+	p1.pos.set(0.4, 0.5);
+	p1.vel.set(0.3, 0.0);
+	p1.mass_angle_angularVel_reactiveAngle.set(1.0, 0, 0, 60);
+	p1.collision_state.set(0, 3, 0, 0);
+	Particle p2;
+	p2.pos.set(0.6, 0.5);
+	p2.vel.set(-0.3, 0.0);
+	p2.mass_angle_angularVel_reactiveAngle.set(1.0, 180, 0, 60);
+	p2.collision_state.set(0, 3, 0, 0);
+
+	particles.push_back(p1);
+	particles.push_back(p2);
+	nParticles = 2;
+	*/
 
 	for (int i = 1; i < concentrationData.size(); i++) {
 		concentrationRawData[i].back() = concentrationData[i].back();
@@ -103,19 +119,15 @@ void ofApp::setup() {
 		concentrationData[i].back() /= nParticles;
 	}
 
-	if (initialSetup) {
-		colorBuffer.allocate(particleColors, GL_STATIC_READ);
-		particleBuffer1.allocate(particles, GL_DYNAMIC_DRAW);
-		particleBuffer2.allocate(particles, GL_DYNAMIC_DRAW);
-	}
-	else {
-		colorBuffer.setData(particleColors, GL_STATIC_READ);
-		particleBuffer1.setData(particles, GL_DYNAMIC_DRAW);
-		particleBuffer2.setData(particles, GL_DYNAMIC_DRAW);
-	}
+	colorBuffer.allocate(particleColors, GL_STATIC_READ);
+	particleBuffer1.allocate(particles, GL_DYNAMIC_DRAW);
+	particleBuffer2.allocate(particles, GL_DYNAMIC_DRAW);
+
 	colorBuffer.bindBase(GL_SHADER_STORAGE_BUFFER, 2);
 	particleBuffer2.bindBase(GL_SHADER_STORAGE_BUFFER, 1);
 	particleBuffer1.bindBase(GL_SHADER_STORAGE_BUFFER, 0);
+
+	bufferSize = particles.size();
 
 	float e = 0;
 	for (auto &p : particles) {
@@ -252,11 +264,18 @@ void ofApp::update() {
 		compute.dispatchCompute((particles.size() + 1024 - 1) / 1024, 1, 1);
 		compute.end();
 
+		GLenum err;
+		while ((err = glGetError()) != GL_NO_ERROR) {
+			cout << "OpenGL Error: " << err << endl;
+		}
+		particleBuffer1.bind(GL_SHADER_STORAGE_BUFFER);
+
 		glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, nParticles * sizeof(Particle), &(particles[0]));
 		// handle combination collisions
 		vector<int> removedIndices;
 		set<int> unavailableIndices;
 
+		int prevNParticles = nParticles;
 
 		// add zeroed concentration values
 		for (int i = 1; i < concentrationData.size(); i++) {
@@ -311,25 +330,34 @@ void ofApp::update() {
 					}
 					else {
 						// we know the final kinetic energy and momentum, just has to be divided among particles
-						float kFinal = 0.5 * (particles[i].mass_angle_angularVel_reactiveAngle.x * particles[i].vel.lengthSquared() - particles[idx].mass_angle_angularVel_reactiveAngle.x * particles[idx].vel.lengthSquared());
+						GLfloat kFinal = 0.5 * (particles[i].mass_angle_angularVel_reactiveAngle.x * particles[i].vel.lengthSquared() + particles[idx].mass_angle_angularVel_reactiveAngle.x * particles[idx].vel.lengthSquared());
 						if (kFinal > curReaction.activationEnergy) {
-							float totalMass = particles[i].mass_angle_angularVel_reactiveAngle.x + particles[idx].mass_angle_angularVel_reactiveAngle.x;
+							kFinal -= curReaction.deltaE;
+							GLfloat totalMass = particles[i].mass_angle_angularVel_reactiveAngle.x + particles[idx].mass_angle_angularVel_reactiveAngle.x;
 
-							ofVec2f vFinal = ((particles[i].mass_angle_angularVel_reactiveAngle.x * particles[i].vel) + (particles[idx].mass_angle_angularVel_reactiveAngle.x * particles[idx].vel));
-							vFinal = vFinal.normalize();
+							ofVec2f dirFinal = ((particles[i].mass_angle_angularVel_reactiveAngle.x * particles[i].vel) + (particles[idx].mass_angle_angularVel_reactiveAngle.x * particles[idx].vel));
+							dirFinal = dirFinal.normalize();
+
 							unavailableIndices.insert(i);
 							unavailableIndices.insert(idx);
 							removedIndices.push_back(idx);
 							removedIndices.push_back(i);
 							ofVec2f initPos = particles[i].pos;
-							float kPart = kFinal / curReaction.products.size();
+							GLfloat kPart = kFinal / curReaction.products.size();
 			
 							// velocity is the required velocity to maintain kinetic energy in the direction of the collision if it were inelastic plus a random rotation
 							for (int d = 0; d < curReaction.products.size(); d ++) {
 								Particle p;
 								p.pos = initPos + (2 * radius * ofVec2f(1, 0).rotate(d * 360 / curReaction.products.size()));
-								p.mass_angle_angularVel_reactiveAngle.set(particleTypes[curReaction.products[d]].mass, ofRandom(720) - 360, ofRandom(720) - 360, particleTypes[curReaction.products[d]].reactiveAngle);
-								p.vel = vFinal.rotate(ofRandom(90) - 45) * sqrt(2 * kPart / p.mass_angle_angularVel_reactiveAngle.x);
+								p.mass_angle_angularVel_reactiveAngle.set(particleTypes[curReaction.products[d]].mass, ofRandom(720) - 360, ofRandom(720) - 360, particleTypes[curReaction.products[d]].reactiveAngle);p.vel = dirFinal.rotate(ofRandom(90) - 45) * sqrt(2 * kPart / p.mass_angle_angularVel_reactiveAngle.x);
+								
+								if (dirFinal.x == 0 && dirFinal.y == 0) {
+									p.vel = ofVec2f(1, 0).rotate(d * 360 / curReaction.products.size()) * sqrt(2 * kPart / p.mass_angle_angularVel_reactiveAngle.x);
+								}
+								else {
+									p.vel = dirFinal.rotate(ofRandom(90) - 45) * sqrt(2 * kPart / p.mass_angle_angularVel_reactiveAngle.x);
+								}
+								p.collision_state.x = -1;
 								p.collision_state.y = curReaction.products[d];
 
 								particles.push_back(p);
@@ -358,10 +386,7 @@ void ofApp::update() {
 			particles.pop_back();
 		}
 
-		GLenum err;
-		while ((err = glGetError()) != GL_NO_ERROR) {
-			cout << "OpenGL Error: " << err << endl;
-		}
+		
 		if (updateCount % 4 == 0) {
 			float e = 0;
 			for (auto &p : particles) {
@@ -416,9 +441,19 @@ void ofApp::update() {
 		updateCount++;
 
 		nParticles = particles.size();
-		particleBuffer1.setData(particles, GL_DYNAMIC_DRAW);
-
-		particleBuffer1.copyTo(particleBuffer2);
+		if (nParticles > bufferSize) {
+			cout << "Allocating new buffer" << endl;
+			bufferSize = nParticles;
+			particleBuffer1.allocate(particles, GL_DYNAMIC_DRAW);
+			particleBuffer2.allocate(particles, GL_DYNAMIC_DRAW);
+			particleBuffer2.bindBase(GL_SHADER_STORAGE_BUFFER, 1);
+			particleBuffer1.bindBase(GL_SHADER_STORAGE_BUFFER, 0);
+		}
+		else {
+			particleBuffer1.setData(particles, GL_DYNAMIC_DRAW);
+			particleBuffer1.copyTo(particleBuffer2);
+		}
+		
 	}
 }
 
@@ -463,11 +498,11 @@ void ofApp::draw() {
 	int xOffset = 300 + 30 + scaleFac;
 	ofDrawBitmapString("Particle Concentrations (mole fraction)", xOffset, 10);
 	float xFac;
-	if ((5 * (concentrationData[1].size() - 1)) < 300) {
+	if ((5 * (concentrationData[1].size() - 1)) < 600) {
 		xFac = 1;
 	}
 	else {
-		xFac = 300.0 / (5 * (concentrationData[1].size() - 1));
+		xFac = 600.0 / (5 * (concentrationData[1].size() - 1));
 	}
 	float graphHeight = (scaleFac - 40 - (concentrationData.size() * 30)) / (concentrationData.size() - 1);
 
@@ -491,6 +526,7 @@ void ofApp::draw() {
 		}
 		int markers = 4;
 		for (int n = 0; n <= markers; n++) {
+			// draw the actual value
 			if (guiUseMoleFraction) {
 				ofDrawBitmapString(ofToString((float)n / (float)markers, 2), xOffset - 8, 20 + (((graphHeight + 30) * i) - (((float)n / markers) * graphHeight)));
 			}
@@ -498,7 +534,8 @@ void ofApp::draw() {
 				ofDrawBitmapString(ofToString((float)n * maxNTypeParticle / (float)markers, 2), xOffset - 8, 20 + (((graphHeight + 30) * i) - (((float)n / markers) * graphHeight)));
 			}
 
-			ofDrawBitmapString(ofToString((1.0 / 60) * concentrationData[1].size() * (float)n / (float)markers, 2), xOffset + (n * (300 / markers)), 35 + ((graphHeight + 30) * i));
+			// draw the time
+			ofDrawBitmapString(ofToString((1.0 / 60) * concentrationData[1].size() * (float)n / (float)markers, 2), xOffset + (n * (600 / markers)), 35 + ((graphHeight + 30) * i));
 		}
 
 	}

@@ -30,8 +30,6 @@ uniform float velocityMult;
 layout(local_size_x = 1024, local_size_y = 1, local_size_z = 1) in;
 void main() {
 	// check for collision
-	bool hasCollided = false;
-	vec2 impulse = vec2(0, 0);
 	float minDist = -1;
 	particles[gl_GlobalInvocationID.x].color = particleColors[int(particles[gl_GlobalInvocationID.x].collision.y)];
 	particles[gl_GlobalInvocationID.x].collision.x = -1;
@@ -72,19 +70,30 @@ void main() {
 						lengthSquared = pow(2 * radius, 2);
 					}
 
-					particles[gl_GlobalInvocationID.x].vel = 
-					velocityMult *
-					(p1.vel - 
-					(2 * p2.mass.x / (p1.mass.x + p2.mass.x)) * 
-					(dot(p1.vel - p2.vel, p1.pos - p2.pos) / (lengthSquared)) *
-					(p1.pos - p2.pos));
+					// vec2 newVel = 
+					// 	velocityMult *
+					// 	(p1.vel - 
+					// 	(2 * p2.mass.x / (p1.mass.x + p2.mass.x)) * 
+					// 	(dot(p1.vel - p2.vel, p1.pos - p2.pos) / (lengthSquared)) *
+					// 	(p1.pos - p2.pos));
+
+					// vec2 newVel = p1.vel;
+					// float posFac = (2 * p2.mass.x)/(p1.mass.x + p2.mass.x);
+					// posFac *= dot(p1.vel - p2.vel, p1.pos - p2.pos);
+					// posFac /= lengthSquared;
+					// newVel -= posFac * (p1.pos - p2.pos);
+
+					particles[gl_GlobalInvocationID.x].vel =  
+						velocityMult *
+						(p1.vel - 
+						(2 * p2.mass.x / (p1.mass.x + p2.mass.x)) * 
+						(dot(p1.vel - p2.vel, p1.pos - p2.pos) / (lengthSquared)) *
+						(p1.pos - p2.pos));;
 					// move the particles out of radius
 					vec2 dir = normalize(p1.pos - p2.pos);
 					float amount = (2 * radius - dist)/2;
 					particles[gl_GlobalInvocationID.x].pos += dir * amount;
-
 				}
-				
 			}
 		}
 	}
@@ -93,21 +102,21 @@ void main() {
 	vec2 vel = particles[gl_GlobalInvocationID.x].vel;
 	particles[gl_GlobalInvocationID.x].pos.xy += vel * lastFrameTime;
 	Particle p = particles[gl_GlobalInvocationID.x];
-	if (p.pos.x < 0.0) {
+	if (p.pos.x <= 0.0) {
 		particles[gl_GlobalInvocationID.x].pos.x = 0.0;
-			particles[gl_GlobalInvocationID.x].vel.x *= -1.0;
+		particles[gl_GlobalInvocationID.x].vel.x *= -1.0;
 	}
-	if (p.pos.x > 1.0) {
+	if (p.pos.x >= 1.0) {
 		particles[gl_GlobalInvocationID.x].pos.x = 1.0;
-			particles[gl_GlobalInvocationID.x].vel.x *= -1.0;
+		particles[gl_GlobalInvocationID.x].vel.x *= -1.0;
 	}
-	if (p.pos.y < 0.0) {
+	if (p.pos.y <= 0.0) {
 		particles[gl_GlobalInvocationID.x].pos.y = 0.0;
-			particles[gl_GlobalInvocationID.x].vel.y *= -1.0;
+		particles[gl_GlobalInvocationID.x].vel.y *= -1.0;
 	}
-	if (p.pos.y > 1.0) {
+	if (p.pos.y >= 1.0) {
 		particles[gl_GlobalInvocationID.x].pos.y = 1.0;
-			particles[gl_GlobalInvocationID.x].vel.y *= -1.0;
+		particles[gl_GlobalInvocationID.x].vel.y *= -1.0;
 	}
 
 	particles[gl_GlobalInvocationID.x].mass.y += particles[gl_GlobalInvocationID.x].mass.z * lastFrameTime;
